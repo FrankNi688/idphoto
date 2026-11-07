@@ -2,33 +2,57 @@
 import { outputPixels, validate, autoCrop, cropRect, measure, zoomAt, sheetLayout, headFromLandmarks } from './crop.js';
 import { DEFAULT_ADJ, buildLUT, applyLUT, autoAdjust, isNeutral } from './light.js';
 import { t, lang, setLang, applyStatic } from './i18n.js';
+import { BUILTIN } from './presets.js';
+import { upsample, refineMatte, bgAt } from './matte.js';
+import { fillLight, suggestFill } from './fill.js';
 
-const VERSION = 'v1.1.1';
+const VERSION = 'v1.2.3';
 const $ = (id) => document.getElementById(id);
 $('ver').textContent = VERSION;
 
-// ---------- 预设 ----------
-const PRESET_KEY = 'idp-presets-v1';
-const EXAMPLE = { name: t('example'), wMm: 50, hMm: 70, headMin: 31, headMax: 36, top: 5, dpi: 300, bg: '#ffffff' };
+// ---------- 预设：内置官方规格（只读）+ 自己存的 ----------
+const PRESET_KEY = 'idp-presets-v2', LAST_KEY = 'idp-last-preset';
 const FIELDS = ['wMm', 'hMm', 'headMin', 'headMax', 'top', 'dpi', 'bg'];
-let presets = loadPresets();
+let presets = loadPresets();   // 自己存的
+let cur = null;                // 当前选中的预设对象（内置或自定义）；null = 手动
 
 function loadPresets() {
-  try { const a = JSON.parse(localStorage.getItem(PRESET_KEY)); if (Array.isArray(a) && a.length) return a; } catch {}
-  return [EXAMPLE];
+  try { const a = JSON.parse(localStorage.getItem(PRESET_KEY)); if (Array.isArray(a)) return a; } catch {}
+  // 迁移 v1 存的自定义（去掉当年的示例）
+  try { const a = JSON.parse(localStorage.getItem('idp-presets-v1')); if (Array.isArray(a)) return a.filter((p) => !/50×70 mm$/.test(p.name)); } catch {}
+  return [];
 }
 function savePresets() { localStorage.setItem(PRESET_KEY, JSON.stringify(presets)); }
-function fillPresetSel(sel) {
-  $('presetSel').innerHTML = presets.map((p, i) => `<option value="${i}">${p.name.replace(/</g, '&lt;')}</option>`).join('');
-  $('presetSel').value = String(sel ?? 0);
+const bName = (b) => (lang === 'zh' ? b.zh : b.en);
+function fillPresetSel(val) {
+  const esc = (x) => String(x).replace(/</g, '&lt;');
+  $('presetSel').innerHTML =
+    `<optgroup label="${t('official')}">` + BUILTIN.map((b) => `<option value="b:${b.id}">${esc(bName(b))}</option>`).join('') + '</optgroup>' +
+    (presets.length ? `<optgroup label="${t('mine')}">` + presets.map((p, i) => `<option value="c:${i}">${esc(p.name)}</option>`).join('') + '</optgroup>' : '') +
+    `<option value="manual">${t('manual')}</option>`;
+  $('presetSel').value = val;
+  if ($('presetSel').value !== val) $('presetSel').value = 'b:' + BUILTIN[0].id;
 }
 function setParams(p) { for (const f of FIELDS) $('p_' + f).value = p[f]; }
 function getParams() {
   const p = {};
   for (const f of FIELDS) p[f] = f === 'bg' ? $('p_bg').value : parseFloat($('p_' + f).value);
+  if (cur) { p.kbMin = cur.kbMin; p.kbMax = cur.kbMax; }
   return p;
 }
-$('presetSel').onchange = () => { setParams(presets[+$('presetSel').value]); onParams(true); };
+function applyPresetSel(reAuto) {
+  const v = $('presetSel').value;
+  localStorage.setItem(LAST_KEY, v);
+  cur = v.startsWith('b:') ? BUILTIN.find((b) => 'b:' + b.id === v) : v.startsWith('c:') ? presets[+v.slice(2)] : null;
+  const locked = v.startsWith('b:');
+  if (cur) setParams(cur);
+  for (const f of FIELDS) $('p_' + f).disabled = locked && f !== 'bg';
+  $('presetSave').hidden = locked;
+  $('presetDel').hidden = !v.startsWith('c:');
+  $('specNote').textContent = locked ? (lang === 'zh' ? cur.noteZh : cur.noteEn) : '';
+  onParams(reAuto);
+}
+$('presetSel').onchange = () => applyPresetSel(true);
 $('presetSave').onclick = () => {
   const p = getParams();
   if (validate(p).length) return alert(t('fixFirst'));
@@ -37,15 +61,19 @@ $('presetSave').onclick = () => {
   const i = presets.findIndex((x) => x.name === name);
   const item = { name, ...p };
   if (i >= 0) presets[i] = item; else presets.push(item);
-  savePresets(); fillPresetSel(i >= 0 ? i : presets.length - 1);
+  savePresets(); fillPresetSel('c:' + (i >= 0 ? i : presets.length - 1)); applyPresetSel(false);
 };
 $('presetDel').onclick = () => {
-  if (presets.length <= 1) return alert(t('keepOne'));
-  const i = +$('presetSel').value;
+  const v = $('presetSel').value; if (!v.startsWith('c:')) return;
+  const i = +v.slice(2);
   if (!confirm(t('delConfirm', presets[i].name))) return;
-  presets.splice(i, 1); savePresets(); fillPresetSel(0); setParams(presets[0]); onParams(true);
+  presets.splice(i, 1); savePresets(); fillPresetSel('b:' + BUILTIN[0].id); applyPresetSel(true);
 };
-for (const f of FIELDS) $('p_' + f).addEventListener('input', () => onParams(false));
+for (const f of FIELDS) $('p_' + f).addEventListener('input', () => {
+  // 手动改了数值（自定义预设里）就变成「手动」
+  if (f !== 'bg' && $('presetSel').value.startsWith('c:')) { $('presetSel').value = 'manual'; cur = null; $('presetDel').hidden = true; }
+  onParams(false);
+});
 
 let params = null;
 function onParams(reAuto) {
@@ -66,7 +94,7 @@ const state = {
   img: null, W: 0, H: 0,      // 原图（已按 EXIF 摆正）
   det: null,                  // { crownY, chinY, cx, faceW, roll, crownSrc }
   crop: null,                 // { cx, top, ppm }
-  adj: { ...DEFAULT_ADJ },
+  adj: { ...DEFAULT_ADJ }, fill: 0,
   mask: null,                 // 人像分割 canvas（alpha = 人像）
   maskStatus: 'idle',
 };
@@ -128,7 +156,7 @@ $('fileIn').onchange = (e) => { loadFile(e.target.files[0]); e.target.value = ''
 async function setImage(canvas) {
   state.img = canvas; state.W = canvas.width; state.H = canvas.height;
   state.det = null; state.crop = null; state.mask = null; state.maskStatus = 'idle';
-  state.adj = { ...DEFAULT_ADJ }; syncAdjUI();
+  state.adj = { ...DEFAULT_ADJ }; state.fill = 0; syncAdjUI();
   clearExport();
   for (const id of ['cropCard', 'lightCard', 'bgCard', 'exportCard']) $(id).hidden = false;
   $('detWarn').textContent = '';
@@ -193,26 +221,29 @@ async function runSegmentation() {
     const mw = m.width, mh = m.height;
     r.close?.();
     state.maskData = { data, w: mw, h: mh };
-    // 做成 alpha 画布
-    const mc = document.createElement('canvas'); mc.width = mw; mc.height = mh;
-    const ctx = mc.getContext('2d');
-    const id = ctx.createImageData(mw, mh);
-    for (let i = 0; i < data.length; i++) {
-      // 稍微拉陡一点，边缘更干净
-      const a = Math.min(1, Math.max(0, (data[i] - 0.3) / 0.4));
-      id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = 0;
-      id.data[i * 4 + 3] = Math.round(a * 255);
-    }
-    ctx.putImageData(id, 0, 0);
-    state.mask = mc; state.maskStatus = 'ok';
+    // 在 ≤1600 px 的工作图上精修边缘：背景是单色时按颜色差抠头发
+    const k2 = Math.min(1, 1600 / Math.max(state.W, state.H));
+    const ww = Math.round(state.W * k2), wh = Math.round(state.H * k2);
+    const wc = document.createElement('canvas'); wc.width = ww; wc.height = wh;
+    const wctx = wc.getContext('2d', { willReadFrequently: true });
+    wctx.drawImage(state.img, 0, 0, ww, wh);
+    const px = wctx.getImageData(0, 0, ww, wh).data;
+    const conf = upsample(data, mw, mh, ww, wh);
+    const mt = refineMatte(px, conf, ww, wh);
+    state.matte = { model: mt.model, plain: mt.plain, noise: mt.noise };
+    const id = wctx.createImageData(ww, wh);
+    for (let i = 0; i < ww * wh; i++) id.data[i * 4 + 3] = Math.round(mt.alpha[i] * 255);
+    wctx.putImageData(id, 0, 0);
+    state.mask = wc; state.maskStatus = 'ok';
   } catch (e) {
-    console.error(e); state.maskData = null; state.mask = null; state.maskStatus = 'fail';
+    console.error(e); state.maskData = null; state.mask = null; state.matte = null; state.maskStatus = 'fail';
   }
   updateBgHint();
 }
 function updateBgHint() {
-  const m = { idle: '', running: t('segRunning'), ok: t('segOk'), fail: t('segFail') };
+  const m = { idle: '', running: t('segRunning'), ok: state.matte?.plain ? t('segPlain') : t('segNotPlain'), fail: t('segFail') };
   $('bgHint').textContent = m[state.maskStatus];
+  $('bgHint').className = state.maskStatus === 'ok' && !state.matte?.plain ? 'warn' : 'hint';
   $('bgOn').disabled = state.maskStatus !== 'ok';
 }
 
@@ -231,9 +262,12 @@ function renderCrop(outW, outH) {
   pc.imageSmoothingEnabled = true; pc.imageSmoothingQuality = 'high';
   pc.fillStyle = p.bg; pc.fillRect(0, 0, outW, outH);
   pc.drawImage(state.img, -r.x * sx, -r.y * sy, state.W * sx, state.H * sy);
-  if (!isNeutral(state.adj)) {
+  const luts = isNeutral(state.adj) ? null : buildLUT(state.adj);
+  const face = state.det && state.fill > 0 ? faceEllipse(r, sx, sy) : null;
+  if (luts || face) {
     const id = pc.getImageData(0, 0, outW, outH);
-    applyLUT(id, buildLUT(state.adj));
+    if (luts) applyLUT(id, luts);
+    if (face) fillLight(id, face, state.fill / 100);
     pc.putImageData(id, 0, 0);
   }
   if ($('bgOn').checked && state.mask) {
@@ -249,12 +283,37 @@ function renderCrop(outW, outH) {
     const m = document.createElement('canvas'); m.width = outW; m.height = outH;
     const mc = m.getContext('2d'); mc.imageSmoothingEnabled = true; mc.imageSmoothingQuality = 'high';
     mc.drawImage(small, 0, 0, outW, outH);
-    pc.globalCompositeOperation = 'destination-in';
-    pc.drawImage(m, 0, 0);
-    pc.globalCompositeOperation = 'source-over';
+    if (state.matte?.model) {
+      // 合成时去掉边缘里残留的旧背景色（头发丝不会带一圈灰边）
+      const P = pc.getImageData(0, 0, outW, outH), A = mc.getImageData(0, 0, outW, outH).data, d = P.data;
+      const N = hexRgb(p.bg), B = [0, 0, 0];
+      for (let y = 0; y < outH; y++) for (let x = 0; x < outW; x++) {
+        const i = (y * outW + x) * 4, a = A[i + 3] / 255;
+        if (a >= 0.99) continue;
+        if (a <= 0.01) { d[i] = N[0]; d[i + 1] = N[1]; d[i + 2] = N[2]; continue; }
+        bgAt(state.matte.model, (r.x + (x + 0.5) / sx) / state.W, (r.y + (y + 0.5) / sy) / state.H, B);
+        for (let c = 0; c < 3; c++) {
+          const b = luts ? luts[c][Math.min(255, Math.max(0, Math.round(B[c])))] : B[c];
+          const f = Math.min(255, Math.max(0, (d[i + c] - (1 - a) * b) / a));
+          d[i + c] = a * f + (1 - a) * N[c];
+        }
+      }
+      pc.putImageData(P, 0, 0);
+    } else {
+      pc.globalCompositeOperation = 'destination-in';
+      pc.drawImage(m, 0, 0);
+      pc.globalCompositeOperation = 'source-over';
+    }
   }
   ctx.drawImage(photo, 0, 0);
   return c;
+}
+
+function hexRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+// 脸部椭圆（输出图坐标）：头顶到下巴的下 70%，避开头发
+function faceEllipse(r, sx, sy) {
+  const d = state.det, H = d.chinY - d.crownY;
+  return { cx: (d.cx - r.x) * sx, cy: (d.crownY + H * 0.6 - r.y) * sy, rx: d.faceW * 0.5 * sx, ry: H * 0.42 * sy };
 }
 
 // ---------- 预览 ----------
@@ -372,14 +431,16 @@ window.addEventListener('resize', schedule);
 // ---------- 调光 ----------
 const ADJ_KEYS = Object.keys(DEFAULT_ADJ);
 function syncAdjUI() {
+  $('a_fill').value = state.fill; $('a_fill').nextElementSibling.textContent = state.fill;
   for (const k of ADJ_KEYS) { const el = $('a_' + k); el.value = state.adj[k]; el.nextElementSibling.textContent = fmtAdj(k, state.adj[k]); }
 }
 function fmtAdj(k, v) { return k === 'exposure' ? (v > 0 ? '+' : '') + (+v).toFixed(2) : (v > 0 ? '+' : '') + v; }
 for (const k of ADJ_KEYS) $('a_' + k).addEventListener('input', (e) => { state.adj[k] = parseFloat(e.target.value); e.target.nextElementSibling.textContent = fmtAdj(k, state.adj[k]); schedule(); });
-$('resetLight').onclick = () => { state.adj = { ...DEFAULT_ADJ }; syncAdjUI(); schedule(); };
+$('a_fill').addEventListener('input', (e) => { state.fill = +e.target.value; e.target.nextElementSibling.textContent = state.fill; schedule(); });
+$('resetLight').onclick = () => { state.adj = { ...DEFAULT_ADJ }; state.fill = 0; syncAdjUI(); schedule(); };
 $('autoLight').onclick = () => {
   if (!state.crop) return;
-  const save = state.adj; state.adj = { ...DEFAULT_ADJ };
+  const save = state.adj, saveFill = state.fill; state.adj = { ...DEFAULT_ADJ }; state.fill = 0;
   const bgWas = $('bgOn').checked; $('bgOn').checked = false;
   const w = 300, h = Math.round(300 * params.hMm / params.wMm);
   const c = renderCrop(w, h);
@@ -391,6 +452,12 @@ $('autoLight').onclick = () => {
     const fw = state.det.faceW * 0.6, fh = (state.det.chinY - state.det.crownY) * 0.5;
     face = { x: (state.det.cx - fw / 2 - r.x) * k, y: (state.det.crownY + (state.det.chinY - state.det.crownY) * 0.3 - r.y) * k, w: fw * k, h: fh * k };
   }
+  // 先补光（去侧面阴影），再按补光后的脸定曝光
+  if (state.det) {
+    const rr = cropRect(params, state.crop), fe = faceEllipse(rr, w / rr.w, w / rr.w);
+    state.fill = suggestFill(id, fe);
+    fillLight(id, fe, state.fill / 100);
+  } else state.fill = saveFill;
   state.adj = autoAdjust(id, face) || save;
   syncAdjUI(); schedule();
 };
@@ -459,7 +526,18 @@ async function doExport(kind) {
       info = t('sheetInfo', canvas.width, canvas.height, r.L.n, r.L.cols, r.L.rows, params.dpi);
       lastName = `idphoto_4x6_${r.L.n}up_${canvas.width}x${canvas.height}.jpg`;
     }
-    lastBlob = await setJpegDpi(await toJpeg(canvas), Math.round(params.dpi));
+    let q = 0.95, blob = await toJpeg(canvas, q);
+    // 官方对电子版文件大小有要求时，自动调 JPEG 质量落进范围
+    if (kind === 'single' && (params.kbMax || params.kbMin)) {
+      const lo = (params.kbMin || 0) * 1024, hi = (params.kbMax || 1e9) * 1024;
+      if (blob.size > hi) {
+        let a = 0.3, b2 = 0.95;
+        for (let i = 0; i < 8; i++) { q = (a + b2) / 2; blob = await toJpeg(canvas, q); if (blob.size > hi) b2 = q; else a = q; }
+        if (blob.size > hi) { q = a; blob = await toJpeg(canvas, q); }
+      } else if (blob.size < lo) { q = 1; blob = await toJpeg(canvas, 1); }
+      info += ` · ${t('fileTarget')} ${params.kbMin || 0}–${params.kbMax} KB`;
+    }
+    lastBlob = await setJpegDpi(blob, Math.round(params.dpi));
     const url = URL.createObjectURL(lastBlob);
     $('expImg').src = url;
     $('expDl').href = url; $('expDl').download = lastName;
@@ -486,14 +564,101 @@ $('langBtn').textContent = lang === 'zh' ? 'EN' : '中文';
 $('langBtn').onclick = () => {
   setLang(lang === 'zh' ? 'en' : 'zh');
   $('langBtn').textContent = lang === 'zh' ? 'EN' : '中文';
-  // 只有一组没改过的示例预设时，名字跟着语言走
-  if (presets.length === 1 && /50×70/.test(presets[0].name) && !localStorage.getItem(PRESET_KEY)) { presets[0].name = t('example'); fillPresetSel(0); }
-  onParams(false); updateBgHint(); if (state.crop) schedule();
+  fillPresetSel($('presetSel').value); applyPresetSel(false);
+  updateBgHint(); if (state.crop) schedule();
 };
-fillPresetSel(0); setParams(presets[0]); onParams(false);
+fillPresetSel(localStorage.getItem(LAST_KEY) || 'b:' + BUILTIN[0].id); applyPresetSel(false);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 // 测试钩子：直接塞一张 canvas 进来
 window.__idp.setImage = setImage;
 window.__idp.doAuto = doAuto;
 window.__idp.schedule = schedule;
 window.__idp.render = { single: renderSingle, sheet: renderSheet };
+window.__idp.faceEllipse = faceEllipse;
+window.__idp.cropRect = () => cropRect(params, state.crop);
+
+// ---------- 取景相机：按所选证件画出头肩轮廓 ----------
+let camStream = null, camFacing = 'user', camTimer = false;
+$('camBtn').onclick = openCam;
+async function openCam() {
+  if (!navigator.mediaDevices?.getUserMedia || !params) { $('camIn').click(); return; }
+  try {
+    await startStream();
+    $('cam').hidden = false;
+    drawGuide();
+  } catch (e) {
+    console.error(e); stopCam(); alert(t('camFail')); $('camIn').click();
+  }
+}
+async function startStream() {
+  camStream?.getTracks().forEach((tr) => tr.stop());
+  camStream = await navigator.mediaDevices.getUserMedia({
+    audio: false, video: { facingMode: camFacing, width: { ideal: 1920 }, height: { ideal: 1920 } },
+  });
+  const v = $('camVideo');
+  v.srcObject = camStream;
+  v.classList.toggle('mirror', camFacing === 'user');
+  await v.play().catch(() => {});
+  await new Promise((r) => (v.videoWidth ? r() : v.addEventListener('loadedmetadata', r, { once: true })));
+}
+function stopCam() {
+  camStream?.getTracks().forEach((tr) => tr.stop()); camStream = null;
+  $('camVideo').srcObject = null; $('cam').hidden = true; $('camCount').textContent = '';
+}
+$('camClose').onclick = stopCam;
+$('camFlip').onclick = async () => { camFacing = camFacing === 'user' ? 'environment' : 'user'; try { await startStream(); drawGuide(); } catch (e) { console.error(e); } };
+$('camTimer').onclick = () => { camTimer = !camTimer; $('camTimer').classList.toggle('on', camTimer); };
+window.addEventListener('resize', () => { if (!$('cam').hidden) drawGuide(); });
+
+// 轮廓框：成品比例的框占画面约 78% 宽；头高按范围中点画
+function guideGeom() {
+  const W = innerWidth, H = innerHeight;
+  const aspect = params.hMm / params.wMm;
+  let fw = W * 0.78, fh = fw * aspect;
+  if (fh > H * 0.62) { fh = H * 0.62; fw = fh / aspect; }
+  return { W, H, fx: (W - fw) / 2, fy: (H - fh) / 2 - H * 0.02, fw, fh, k: fw / params.wMm };
+}
+function drawGuide() {
+  const c = $('camGuide'), dpr = devicePixelRatio || 1, g = guideGeom();
+  c.width = g.W * dpr; c.height = g.H * dpr;
+  const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // 框外压暗
+  x.fillStyle = 'rgba(0,0,0,0.45)';
+  x.beginPath(); x.rect(0, 0, g.W, g.H); x.rect(g.fx, g.fy, g.fw, g.fh); x.fill('evenodd');
+  x.strokeStyle = '#fff'; x.lineWidth = 2; x.strokeRect(g.fx, g.fy, g.fw, g.fh);
+  const head = (params.headMin + params.headMax) / 2 * g.k;
+  const crown = g.fy + params.top * g.k, chin = crown + head, cx = g.fx + g.fw / 2;
+  const hw = head * 0.38; // 半个头宽（含头发）
+  x.save(); x.beginPath(); x.rect(g.fx, g.fy, g.fw, g.fh); x.clip();
+  // 头 + 脖子 + 肩膀轮廓
+  x.strokeStyle = 'rgba(255,255,255,0.9)'; x.lineWidth = 3; x.setLineDash([8, 6]);
+  x.beginPath(); x.ellipse(cx, crown + head / 2, hw, head / 2, 0, 0, Math.PI * 2); x.stroke();
+  const neckTop = chin - head * 0.08, neckW = head * 0.2, shY = chin + head * 0.32, shW = head * 1.25;
+  x.beginPath();
+  x.moveTo(cx - neckW, neckTop); x.lineTo(cx - neckW, chin + head * 0.12);
+  x.quadraticCurveTo(cx - neckW - head * 0.1, shY - head * 0.08, cx - shW * 0.6, shY);
+  x.quadraticCurveTo(cx - shW, shY + head * 0.05, cx - shW * 1.05, shY + head * 0.6);
+  x.moveTo(cx + neckW, neckTop); x.lineTo(cx + neckW, chin + head * 0.12);
+  x.quadraticCurveTo(cx + neckW + head * 0.1, shY - head * 0.08, cx + shW * 0.6, shY);
+  x.quadraticCurveTo(cx + shW, shY + head * 0.05, cx + shW * 1.05, shY + head * 0.6);
+  x.stroke(); x.setLineDash([]);
+  // 头顶线（蓝）和下巴线（绿）
+  x.lineWidth = 2.5;
+  x.strokeStyle = '#4da3ff'; line(x, g.fx, crown, g.fx + g.fw, crown);
+  x.strokeStyle = '#3ddc84'; line(x, g.fx, chin, g.fx + g.fw, chin);
+  x.restore();
+}
+$('camShot').onclick = async () => {
+  if (!camStream) return;
+  if (camTimer) for (let n = 3; n > 0; n--) { $('camCount').textContent = n; await new Promise((r) => setTimeout(r, 1000)); }
+  $('camCount').textContent = '';
+  const v = $('camVideo'), vw = v.videoWidth, vh = v.videoHeight;
+  // 只保留屏幕上看得到的那部分（object-fit: cover），这样构图和取景一致
+  const W = innerWidth, H = innerHeight, sc = Math.max(W / vw, H / vh);
+  const sw = W / sc, sh = H / sc, sx0 = (vw - sw) / 2, sy0 = (vh - sh) / 2;
+  const c = document.createElement('canvas'); c.width = Math.round(sw); c.height = Math.round(sh);
+  c.getContext('2d').drawImage(v, sx0, sy0, sw, sh, 0, 0, c.width, c.height);
+  stopCam();
+  await setImageBusy(c);
+};
+async function setImageBusy(c) { busy(t('reading')); try { await setImage(c); } finally { busy(false); } }

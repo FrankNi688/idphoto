@@ -19,15 +19,6 @@
 </header>
 <main>
   <section class="card">
-    <h2 data-i18n="s1"></h2>
-    <div class="row">
-      <label class="btn primary"><span data-i18n="take"></span><input id="camIn" type="file" accept="image/*" capture="user" hidden></label>
-      <label class="btn"><span data-i18n="pick"></span><input id="fileIn" type="file" accept="image/*" hidden></label>
-    </div>
-    <p class="hint" data-i18n="localOnly"></p>
-  </section>
-
-  <section class="card">
     <h2 data-i18n="s2"></h2>
     <div class="row">
       <select id="presetSel"></select>
@@ -44,8 +35,19 @@
       <label><span data-i18n="bg"></span><input id="p_bg" type="color"></label>
       <label class="info"><span data-i18n="outPx"></span><span id="pxInfo">–</span></label>
     </div>
+    <p class="spec" id="specNote"></p>
     <p class="hint" data-i18n="sizeHint"></p>
     <p class="err" id="paramErr"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="s1"></h2>
+    <div class="row">
+      <button class="btn primary" id="camBtn" data-i18n="take"></button><input id="camIn" type="file" accept="image/*" capture="user" hidden>
+      <label class="btn"><span data-i18n="pick"></span><input id="fileIn" type="file" accept="image/*" hidden></label>
+    </div>
+    <p class="hint" data-i18n="plainTip"></p>
+    <p class="hint" data-i18n="localOnly"></p>
   </section>
 
   <section class="card" id="cropCard" hidden>
@@ -72,12 +74,14 @@
     <label class="slider"><span data-i18n="a_contrast"></span><input id="a_contrast" type="range" min="-100" max="100" step="1" value="0"><output></output></label>
     <label class="slider"><span data-i18n="a_shadows"></span><input id="a_shadows" type="range" min="0" max="100" step="1" value="0"><output></output></label>
     <label class="slider"><span data-i18n="a_temp"></span><input id="a_temp" type="range" min="-100" max="100" step="1" value="0"><output></output></label>
+    <label class="slider"><span data-i18n="a_fill"></span><input id="a_fill" type="range" min="0" max="100" step="1" value="0"><output></output></label>
+    <p class="hint" data-i18n="fillHint"></p>
   </section>
 
   <section class="card" id="bgCard" hidden>
     <h2 data-i18n="s5"></h2>
     <label class="check"><input type="checkbox" id="bgOn"> <span data-i18n="bgOn"></span></label>
-    <label class="slider"><span data-i18n="feather"></span><input id="feather" type="range" min="0" max="6" step="1" value="2"><output></output></label>
+    <label class="slider"><span data-i18n="feather"></span><input id="feather" type="range" min="0" max="6" step="1" value="1"><output></output></label>
     <p class="hint" id="bgHint"></p>
   </section>
 
@@ -95,6 +99,18 @@
     </div>
   </section>
 </main>
+<div id="cam" hidden>
+  <video id="camVideo" playsinline muted autoplay></video>
+  <canvas id="camGuide"></canvas>
+  <p id="camTip" data-i18n="camTip"></p>
+  <div id="camCount"></div>
+  <div class="camBar">
+    <button class="camBtn" id="camClose" aria-label="Close">✕</button>
+    <button class="camBtn" id="camTimer">3s</button>
+    <button id="camShot" aria-label="Shoot"></button>
+    <button class="camBtn" id="camFlip" aria-label="Flip">⟲</button>
+  </div>
+</div>
 <div id="busy" hidden><div class="spinner"></div><p id="busyMsg"></p></div>
 <script type="module" src="app.js"></script>
 </body>
