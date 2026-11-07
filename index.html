@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ID Photo">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="style.css">
+<title>ID Photo</title>
+</head>
+<body>
+<header>
+  <h1 data-i18n="title">ID Photo</h1>
+  <span class="ver" id="ver"></span>
+  <button class="lang" id="langBtn">中文</button>
+</header>
+<main>
+  <section class="card">
+    <h2 data-i18n="s1"></h2>
+    <div class="row">
+      <label class="btn primary"><span data-i18n="take"></span><input id="camIn" type="file" accept="image/*" capture="user" hidden></label>
+      <label class="btn"><span data-i18n="pick"></span><input id="fileIn" type="file" accept="image/*" hidden></label>
+    </div>
+    <p class="hint" data-i18n="localOnly"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="s2"></h2>
+    <div class="row">
+      <select id="presetSel"></select>
+      <button class="btn small" id="presetSave" data-i18n="savePreset"></button>
+      <button class="btn small ghost" id="presetDel" data-i18n="delPreset"></button>
+    </div>
+    <div class="grid">
+      <label><span data-i18n="wMm"></span><input id="p_wMm" type="number" inputmode="decimal" step="0.1"></label>
+      <label><span data-i18n="hMm"></span><input id="p_hMm" type="number" inputmode="decimal" step="0.1"></label>
+      <label><span data-i18n="headMin"></span><input id="p_headMin" type="number" inputmode="decimal" step="0.1"></label>
+      <label><span data-i18n="headMax"></span><input id="p_headMax" type="number" inputmode="decimal" step="0.1"></label>
+      <label><span data-i18n="top"></span><input id="p_top" type="number" inputmode="decimal" step="0.1"></label>
+      <label><span data-i18n="dpi"></span><input id="p_dpi" type="number" inputmode="numeric" step="1"></label>
+      <label><span data-i18n="bg"></span><input id="p_bg" type="color"></label>
+      <label class="info"><span data-i18n="outPx"></span><span id="pxInfo">–</span></label>
+    </div>
+    <p class="hint" data-i18n="sizeHint"></p>
+    <p class="err" id="paramErr"></p>
+  </section>
+
+  <section class="card" id="cropCard" hidden>
+    <h2 data-i18n="s3"></h2>
+    <div class="stage"><canvas id="preview"></canvas></div>
+    <p class="measure" id="measure"></p>
+    <p class="hint" data-i18n="cropHint"></p>
+    <label class="slider"><span data-i18n="zoom"></span><input id="zoom" type="range" min="-100" max="100" value="0"></label>
+    <div class="row">
+      <button class="btn small" id="reAuto" data-i18n="reAuto"></button>
+      <label class="check"><input type="checkbox" id="showGuides" checked> <span data-i18n="guides"></span></label>
+    </div>
+    <p class="warn" id="detWarn"></p>
+  </section>
+
+  <section class="card" id="lightCard" hidden>
+    <h2><span data-i18n="s4"></span> <small data-i18n="s4sub"></small></h2>
+    <div class="row">
+      <button class="btn small primary" id="autoLight" data-i18n="autoLight"></button>
+      <button class="btn small ghost" id="resetLight" data-i18n="resetLight"></button>
+    </div>
+    <label class="slider"><span data-i18n="a_exposure"></span><input id="a_exposure" type="range" min="-2" max="2" step="0.05" value="0"><output></output></label>
+    <label class="slider"><span data-i18n="a_brightness"></span><input id="a_brightness" type="range" min="-100" max="100" step="1" value="0"><output></output></label>
+    <label class="slider"><span data-i18n="a_contrast"></span><input id="a_contrast" type="range" min="-100" max="100" step="1" value="0"><output></output></label>
+    <label class="slider"><span data-i18n="a_shadows"></span><input id="a_shadows" type="range" min="0" max="100" step="1" value="0"><output></output></label>
+    <label class="slider"><span data-i18n="a_temp"></span><input id="a_temp" type="range" min="-100" max="100" step="1" value="0"><output></output></label>
+  </section>
+
+  <section class="card" id="bgCard" hidden>
+    <h2 data-i18n="s5"></h2>
+    <label class="check"><input type="checkbox" id="bgOn"> <span data-i18n="bgOn"></span></label>
+    <label class="slider"><span data-i18n="feather"></span><input id="feather" type="range" min="0" max="6" step="1" value="2"><output></output></label>
+    <p class="hint" id="bgHint"></p>
+  </section>
+
+  <section class="card" id="exportCard" hidden>
+    <h2 data-i18n="s6"></h2>
+    <div class="row">
+      <button class="btn primary" id="expSingle" data-i18n="expSingle"></button>
+      <button class="btn" id="expSheet" data-i18n="expSheet"></button>
+    </div>
+    <p class="measure" id="expInfo"></p>
+    <img id="expImg" alt="">
+    <div class="row" id="expActions" hidden>
+      <button class="btn primary" id="expShare" data-i18n="expShare"></button>
+      <a class="btn" id="expDl" download data-i18n="expDl"></a>
+    </div>
+  </section>
+</main>
+<div id="busy" hidden><div class="spinner"></div><p id="busyMsg"></p></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

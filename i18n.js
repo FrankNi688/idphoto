@@ -1,0 +1,77 @@
+// Interface text. English is the default; the EN / 中文 button switches and remembers the choice.
+const D = {
+  en: {
+    title: 'ID Photo',
+    s1: '1 Photo', take: 'Take photo', pick: 'Choose from library', localOnly: 'Your photo is processed on this phone only. Nothing is uploaded.',
+    s2: '2 Size', savePreset: 'Save preset', delPreset: 'Delete',
+    wMm: 'Width (mm)', hMm: 'Height (mm)', headMin: 'Head min (mm)', headMax: 'Head max (mm)', top: 'Space above head (mm)', dpi: 'DPI', bg: 'Background', outPx: 'Output pixels',
+    sizeHint: 'Head = chin to top of hair. Space above head = top of hair to the top edge.',
+    s3: '3 Crop', cropHint: 'Drag to move, pinch or use the slider to zoom. Blue line = where the top of the head goes; green band = where the chin should land.',
+    zoom: 'Zoom', reAuto: 'Auto-align again', guides: 'Guides',
+    s4: '4 Light', s4sub: '(light only, no face retouching)', autoLight: 'Auto', resetLight: 'Reset',
+    a_exposure: 'Exposure', a_brightness: 'Brightness', a_contrast: 'Contrast', a_shadows: 'Shadows', a_temp: 'Warmth',
+    s5: '5 Background', bgOn: 'Replace with solid color (the Background color above)', feather: 'Soften edge',
+    s6: '6 Export', expSingle: 'Single JPEG', expSheet: '4×6 in print sheet', expShare: 'Save / Share', expDl: 'Download',
+    busy: 'Working…',
+    example: 'Example 50×70 mm',
+    e_size: 'Width and height must be numbers above 0', e_head: 'Head height must be numbers above 0', e_minmax: 'Head min can\'t be larger than head max',
+    e_top: 'Space above head must be 0 or more', e_dpi: 'DPI must be between 1 and 1200', e_fit: 'Space above head + head max is taller than the photo',
+    fixFirst: 'Fix the size settings first', presetName: 'Preset name', keepOne: 'Keep at least one preset', delConfirm: (n) => `Delete preset "${n}"?`,
+    reading: 'Reading photo…', readFail: 'Couldn\'t read the photo: ',
+    detecting: 'Finding the face… (the first time loads the models, give it a moment)',
+    noFace: 'No face found. Drag and zoom to line it up by hand, or use a front-facing, evenly lit photo.',
+    multiFace: 'More than one face in the photo; using the largest.',
+    tilt: (d) => `Head is tilted about ${d}°. Try to keep it level when you retake.`,
+    crownEst: 'Top of head is estimated (hair not separated). Check it against the blue line.',
+    modelFail: (m) => `Face model failed to load (${m}). You can line it up by hand.`,
+    segRunning: 'Separating you from the background…', segOk: 'Done. If the hair edge looks rough, raise "Soften edge", or turn this off and shoot against a plain wall.', segFail: 'Couldn\'t separate the person, so background replacement is off.',
+    noFaceMeasure: 'No face detected: put the top of the head on the blue line and the chin in the green band.',
+    head: 'Head', need: 'required', topSpace: 'Above head',
+    noFit: 'This size doesn\'t fit on a 4×6 in sheet',
+    exporting: 'Exporting…',
+    tooBig: (d) => `Sheet too large for iPhone at this DPI. Use ${d} DPI or less for the 4×6 sheet.`,
+    sheetInfo: (w, h, n, c, r, dpi) => `4×6 in sheet ${w} × ${h} px · ${n} photos (${c}×${r}) @ ${dpi} DPI`,
+  },
+  zh: {
+    title: '证件照',
+    s1: '1 选照片', take: '拍照', pick: '从相册选', localOnly: '照片只在本机处理，不会上传。',
+    s2: '2 尺寸参数', savePreset: '存为预设', delPreset: '删除',
+    wMm: '宽 (mm)', hMm: '高 (mm)', headMin: '头高最小 (mm)', headMax: '头高最大 (mm)', top: '头顶留白 (mm)', dpi: 'DPI', bg: '背景色', outPx: '成品像素',
+    sizeHint: '头高 = 下巴到头顶（含头发）。头顶留白 = 头顶到照片上边。',
+    s3: '3 裁剪', cropHint: '拖动照片移动，双指或滑块缩放。蓝线 = 头顶目标位置，绿带 = 下巴应落的范围。',
+    zoom: '缩放', reAuto: '重新自动对齐', guides: '参考线',
+    s4: '4 调光', s4sub: '（只调光线，不修脸）', autoLight: '一键自动', resetLight: '还原',
+    a_exposure: '曝光', a_brightness: '亮度', a_contrast: '对比度', a_shadows: '阴影', a_temp: '色温',
+    s5: '5 背景', bgOn: '换成纯色背景（用上面的背景色）', feather: '边缘柔化',
+    s6: '6 导出', expSingle: '单张 JPEG', expSheet: '4×6 寸冲印拼版', expShare: '保存 / 分享', expDl: '下载文件',
+    busy: '处理中…',
+    example: '示例 50×70 mm',
+    e_size: '成品宽、高要填大于 0 的数字', e_head: '头部高度要填大于 0 的数字', e_minmax: '头高最小值不能大于最大值',
+    e_top: '头顶留白要填 ≥ 0 的数字', e_dpi: 'DPI 要在 1–1200 之间', e_fit: '头顶留白 + 最大头高 超过了照片高度',
+    fixFirst: '参数有误，先改好再保存', presetName: '预设名称', keepOne: '至少保留一组预设', delConfirm: (n) => `删除预设「${n}」？`,
+    reading: '读取照片…', readFail: '读取照片失败：',
+    detecting: '识别人脸…（第一次要加载模型，稍等）',
+    noFace: '没找到人脸。可以手动拖动/缩放对齐，或换一张正面、光线均匀的照片。',
+    multiFace: '照片里有不止一张脸，已用最大的那张。',
+    tilt: (d) => `头有点歪（约 ${d}°），建议重拍时摆正。`,
+    crownEst: '头顶位置是估算的（没分出头发），请对照蓝线检查。',
+    modelFail: (m) => `人脸识别模型加载失败（${m}），可以手动对齐。`,
+    segRunning: '正在分离人像…', segOk: '人像已分离。头发边缘不理想时可调「边缘柔化」，或关掉换背景、直接在纯色墙前拍。', segFail: '人像分割失败，暂时不能换背景。',
+    noFaceMeasure: '未识别到人脸：请让头顶贴蓝线、下巴落在绿带里。',
+    head: '头高', need: '要求', topSpace: '头顶留白',
+    noFit: '这个尺寸在 4×6 寸里放不下一张',
+    exporting: '导出中…',
+    tooBig: (d) => `这个 DPI 下拼版太大，iPhone 画不了。4×6 拼版请用 ${d} DPI 以内。`,
+    sheetInfo: (w, h, n, c, r, dpi) => `4×6 寸拼版 ${w} × ${h} px · ${n} 张（${c}×${r}）@ ${dpi} DPI`,
+  },
+};
+
+const KEY = 'idp-lang';
+export let lang = localStorage.getItem(KEY) || 'en';
+export function t(k, ...a) { const v = D[lang][k] ?? D.en[k] ?? k; return typeof v === 'function' ? v(...a) : v; }
+export function setLang(l) { lang = l; localStorage.setItem(KEY, l); applyStatic(); }
+export function applyStatic() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.title = t('title');
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+}
