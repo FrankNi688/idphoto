@@ -6,7 +6,7 @@ import { BUILTIN } from './presets.js';
 import { upsample, refineMatte, bgAt } from './matte.js';
 import { fillLight, suggestFill } from './fill.js';
 
-const VERSION = 'v1.2.3';
+const VERSION = 'v1.2.4';
 const $ = (id) => document.getElementById(id);
 $('ver').textContent = VERSION;
 
@@ -568,7 +568,24 @@ $('langBtn').onclick = () => {
   updateBgHint(); if (state.crop) schedule();
 };
 fillPresetSel(localStorage.getItem(LAST_KEY) || 'b:' + BUILTIN[0].id); applyPresetSel(false);
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// 自动更新：每次打开/切回 App 都去检查新版（绕过浏览器缓存），新版装好后自动刷新一次
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    // 正在编辑照片时不打断，等切到后台再刷新
+    if (state.img && document.visibilityState === 'visible') {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') location.reload(); }, { once: true });
+      $('ver').textContent = VERSION + (lang === 'zh' ? ' · 新版已下载，下次打开生效' : ' · update ready, applies next launch');
+    } else location.reload();
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => {});
+}
 // 测试钩子：直接塞一张 canvas 进来
 window.__idp.setImage = setImage;
 window.__idp.doAuto = doAuto;

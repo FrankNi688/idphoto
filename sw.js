@@ -1,5 +1,5 @@
 // 离线：缓存整个 App 和本地模型。不从任何其他网站加载东西，照片永远不出手机。
-const VERSION = 'idp-v1.2.3';
+const VERSION = 'idp-v1.2.4';
 const ASSETS = [
   './', 'index.html', 'style.css', 'app.js', 'crop.js', 'light.js', 'i18n.js', 'presets.js', 'matte.js', 'fill.js', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
