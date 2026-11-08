@@ -6,7 +6,7 @@ import { BUILTIN } from './presets.js';
 import { upsample, refineMatte, bgAt } from './matte.js';
 import { fillLight, suggestFill } from './fill.js';
 
-const VERSION = 'v1.2.4';
+const VERSION = 'v1.2.5';
 const $ = (id) => document.getElementById(id);
 $('ver').textContent = VERSION;
 
@@ -595,7 +595,7 @@ window.__idp.faceEllipse = faceEllipse;
 window.__idp.cropRect = () => cropRect(params, state.crop);
 
 // ---------- 取景相机：按所选证件画出头肩轮廓 ----------
-let camStream = null, camFacing = 'user', camTimer = false;
+let camStream = null, camFacing = 'user', camTimer = false, camZoom = 2, camLight = false, camCaps = {};
 $('camBtn').onclick = openCam;
 async function openCam() {
   if (!navigator.mediaDevices?.getUserMedia || !params) { $('camIn').click(); return; }
@@ -617,14 +617,39 @@ async function startStream() {
   v.classList.toggle('mirror', camFacing === 'user');
   await v.play().catch(() => {});
   await new Promise((r) => (v.videoWidth ? r() : v.addEventListener('loadedmetadata', r, { once: true })));
+  // 变焦和手电筒：先查手机支持不支持，不支持就不显示/不用（iPhone Safari、安卓 Chrome 都支持变焦，手电筒只有后置）
+  const tr = camStream.getVideoTracks()[0];
+  camCaps = (tr && tr.getCapabilities && tr.getCapabilities()) || {};
+  $('camZoom').hidden = !camCaps.zoom || camCaps.zoom.max < 2;
+  await applyZoom();
+  await applyLight();
+}
+async function applyZoom() {
+  const tr = camStream?.getVideoTracks()[0];
+  $('camZoom').textContent = camZoom + '×';
+  if (!tr || !camCaps.zoom || camCaps.zoom.max < 2) return;
+  const z = Math.min(camCaps.zoom.max, Math.max(camCaps.zoom.min, camZoom));
+  try { await tr.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) { console.warn('zoom', e); }
+}
+// 补光：后置有手电筒就开手电筒；前置（或没有手电筒）就把框外整屏变白当照脸灯
+async function applyLight() {
+  const tr = camStream?.getVideoTracks()[0];
+  const torch = !!camCaps.torch && camFacing === 'environment';
+  if (tr && camCaps.torch) { try { await tr.applyConstraints({ advanced: [{ torch: camLight && torch }] }); } catch (e) { console.warn('torch', e); } }
+  $('cam').classList.toggle('screenFill', camLight && !torch);
+  $('camLight').classList.toggle('on', camLight);
+  if (!$('cam').hidden) drawGuide();
 }
 function stopCam() {
   camStream?.getTracks().forEach((tr) => tr.stop()); camStream = null;
   $('camVideo').srcObject = null; $('cam').hidden = true; $('camCount').textContent = '';
+  camLight = false; $('cam').classList.remove('screenFill'); $('camLight').classList.remove('on');
 }
 $('camClose').onclick = stopCam;
 $('camFlip').onclick = async () => { camFacing = camFacing === 'user' ? 'environment' : 'user'; try { await startStream(); drawGuide(); } catch (e) { console.error(e); } };
 $('camTimer').onclick = () => { camTimer = !camTimer; $('camTimer').classList.toggle('on', camTimer); };
+$('camZoom').onclick = () => { camZoom = camZoom === 2 ? 1 : 2; applyZoom(); };
+$('camLight').onclick = () => { camLight = !camLight; applyLight(); };
 window.addEventListener('resize', () => { if (!$('cam').hidden) drawGuide(); });
 
 // 轮廓框：成品比例的框占画面约 78% 宽；头高按范围中点画
@@ -640,9 +665,10 @@ function drawGuide() {
   c.width = g.W * dpr; c.height = g.H * dpr;
   const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0);
   // 框外压暗
-  x.fillStyle = 'rgba(0,0,0,0.45)';
+  const fill = $('cam').classList.contains('screenFill');
+  x.fillStyle = fill ? '#fff' : 'rgba(0,0,0,0.45)';
   x.beginPath(); x.rect(0, 0, g.W, g.H); x.rect(g.fx, g.fy, g.fw, g.fh); x.fill('evenodd');
-  x.strokeStyle = '#fff'; x.lineWidth = 2; x.strokeRect(g.fx, g.fy, g.fw, g.fh);
+  x.strokeStyle = fill ? '#888' : '#fff'; x.lineWidth = 2; x.strokeRect(g.fx, g.fy, g.fw, g.fh);
   const head = (params.headMin + params.headMax) / 2 * g.k;
   const crown = g.fy + params.top * g.k, chin = crown + head, cx = g.fx + g.fw / 2;
   const hw = head * 0.38; // 半个头宽（含头发）

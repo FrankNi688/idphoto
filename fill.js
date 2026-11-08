@@ -39,8 +39,18 @@ function shadeMap(img, f) {
   M = M.map((v, i) => { const y = Math.floor(i / NX), x = i % NX; return (M[Math.max(0, y - 1) * NX + x] + 2 * v + M[Math.min(NY - 1, y + 1) * NX + x]) / 4; });
   // 左右对称处理：每格只和它的镜像格比，暗的那格提到镜像格的亮度。
   // 这样只消除左右明暗差，不会把脸边缘提到鼻梁的亮度（那样会过头，反而另一侧更亮）。
-  const T = M.map((v, i) => { const x = i % NX, r = i - x; return Math.max(v, M[r + NX - 1 - x]); });
-  return { M, T };
+  // 中间阴影（两侧来光时鼻梁、人中、下巴中间一竖条发暗）：只看中间 4 列（两边各半列过渡），
+  // 目标 = 左右内侧脸颊（第 2–4 列和第 9–11 列）里较暗那侧的亮度。脸颊本身和脸边缘不受影响。
+  const V = M.map((v, i) => {
+    const x = i % NX, r = i - x, w = x >= 5 && x <= 8 ? 1 : x === 4 || x === 9 ? 0.5 : 0;
+    if (!w) return v;
+    const side = (k0, k1) => { let m = 0; for (let k = k0; k <= k1; k++) m = Math.max(m, M[r + k]); return m; };
+    const t = Math.min(side(2, 4), side(9, 11));
+    return t > v ? v + w * (t - v) : v;
+  });
+  const Ts = M.map((v, i) => { const x = i % NX, r = i - x; return Math.max(v, M[r + NX - 1 - x]); });
+  const T = Ts.map((v, i) => Math.max(v, V[i]));
+  return { M, T, Ts };
 }
 
 export function fillLight(img, face, strength) {
@@ -51,12 +61,14 @@ export function fillLight(img, face, strength) {
   // 增益表（格中心），之后双线性插值
   // 加法补光：每格要补的亮度差 = 镜像格 − 本格。加同样的亮度而不是乘倍数，
   // 暗侧的颧骨高光就不会被放大成一块亮斑，局部明暗关系保持原样。
-  const Gt = S.M.map((v, i) => Math.min(0.7 * (S.T[i] - v), v * 1.2));
-  const gainAt = (x, y) => {
+  const Gt = S.M.map((v, i) => Math.min(0.7 * (S.Ts[i] - v), v * 1.2));
+  // 中间阴影另算一张表：这部分用更多中性灰加亮，避免额头、人中的纹理被按比例放大成发红的斑块
+  const Gv = S.M.map((v, i) => Math.min(0.7 * (S.T[i] - S.Ts[i]), v * 1.2));
+  const bil = (G, x, y) => {
     const fx = Math.min(NX - 1, Math.max(0, (x - (face.cx - face.rx)) / (2 * face.rx) * NX - 0.5));
     const fy = Math.min(NY - 1, Math.max(0, (y - (face.cy - face.ry)) / (2 * face.ry) * NY - 0.5));
     const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(NX - 1, x0 + 1), y1 = Math.min(NY - 1, y0 + 1), tx = fx - x0, ty = fy - y0;
-    return (Gt[y0 * NX + x0] * (1 - tx) + Gt[y0 * NX + x1] * tx) * (1 - ty) + (Gt[y1 * NX + x0] * (1 - tx) + Gt[y1 * NX + x1] * tx) * ty;
+    return (G[y0 * NX + x0] * (1 - tx) + G[y0 * NX + x1] * tx) * (1 - ty) + (G[y1 * NX + x0] * (1 - tx) + G[y1 * NX + x1] * tx) * ty;
   };
   const cellAt = (x, y) => {
     const fx = Math.min(NX - 1, Math.max(0, (x - (face.cx - face.rx)) / (2 * face.rx) * NX - 0.5));
@@ -67,19 +79,32 @@ export function fillLight(img, face, strength) {
   const R = 1.25;
   const xa = Math.max(0, Math.floor(face.cx - face.rx * R)), xb = Math.min(W, Math.ceil(face.cx + face.rx * R));
   const ya = Math.max(0, Math.floor(face.cy - face.ry * R)), yb = Math.min(H, Math.ceil(face.cy + face.ry * R));
+  // 局部亮度（小块平均）：眼珠、眉毛这种小的暗点比周围暗 → 按比例提亮保色；
+  // 大片阴影（额头、鼻梁中线）跟周围差不多亮 → 当皮肤处理，不会被按比例放大成发红的斑块。
+  const bs = Math.max(4, Math.round(face.rx / 10)), BW = Math.ceil((xb - xa) / bs), BH = Math.ceil((yb - ya) / bs);
+  const Ls = new Float32Array(BW * BH), Ln = new Float32Array(BW * BH);
+  for (let y = ya; y < yb; y += 2) for (let x = xa; x < xb; x += 2) { const b = Math.floor((y - ya) / bs) * BW + Math.floor((x - xa) / bs); Ls[b] += lum(d, (y * W + x) * 4); Ln[b]++; }
+  for (let b = 0; b < Ls.length; b++) Ls[b] = Ln[b] ? Ls[b] / Ln[b] : 128;
+  const localAt = (x, y) => {
+    const fx = Math.min(BW - 1, Math.max(0, (x - xa) / bs - 0.5)), fy = Math.min(BH - 1, Math.max(0, (y - ya) / bs - 0.5));
+    const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(BW - 1, x0 + 1), y1 = Math.min(BH - 1, y0 + 1), tx = fx - x0, ty = fy - y0;
+    return (Ls[y0 * BW + x0] * (1 - tx) + Ls[y0 * BW + x1] * tx) * (1 - ty) + (Ls[y1 * BW + x0] * (1 - tx) + Ls[y1 * BW + x1] * tx) * ty;
+  };
   for (let y = ya; y < yb; y++) for (let x = xa; x < xb; x++) {
     const r = ell(face, x, y);
     if (r >= R) continue;
     const w = r < 1 ? 1 : Math.pow(1 - (r - 1) / (R - 1), 2);
-    let add = strength * w * gainAt(x, y);
+    const as = strength * w * bil(Gt, x, y), av = strength * w * bil(Gv, x, y), add = as + av;
     if (add < 0.5) continue;
     const i = (y * W + x) * 4;
     // 皮肤：一半按比例、一半加中性灰（防发橙、不出亮斑）。
     // 五官暗部（眼珠、眉毛、睫毛、鼻孔）：纯按比例提亮，跟真实打光一样，颜色不变，眼珠不会变灰。
-    const L0 = lum(d, i), ref = Math.max(8, cellAt(x, y)), t = (L0 / ref - 0.45) / 0.3;
+    const L0 = lum(d, i), ref = Math.max(8, cellAt(x, y)), loc = Math.max(8, localAt(x, y)), t = (L0 / loc - 0.55) / 0.3;
     const keep = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
-    const G = 1 + add / ref;
-    const k = 0.5 * add / Math.max(25, L0), n = 0.5 * add;
+    const G = Math.min(1.6, 1 + add / ref); // 很暗的点（胡茬、深阴影）最多提 60%，避免放大成发红的斑块
+    // 皮肤部分：对称补光一半中性灰；中间阴影 60% 中性灰
+    const nf = (0.5 * as + 0.6 * av) / add;
+    const k = (1 - nf) * add / Math.max(25, L0), n = nf * add;
     for (let c = 0; c < 3; c++) { const v = d[i + c], m = v * G, s2 = v * (1 + k) + n; d[i + c] = Math.min(255, m + (s2 - m) * keep); }
   }
 }
