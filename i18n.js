@@ -9,6 +9,7 @@ const D = {
     camLight: 'Light',
     camFail: 'Can\'t open the camera here, using the system camera instead.',
     a_fill: 'Fill light', fillHint: 'Fill light brightens the shadowed side of the face, like a soft lamp. It only lifts light, it never reshapes the face.',
+    segAI: 'Hair-level cut-out done on this phone. Raise "Soften edge" if the edge looks hard.',
     segPlain: 'Plain background detected: hair edges refined by colour. Raise "Soften edge" if the edge looks hard.',
     segNotPlain: 'Background isn\'t plain enough for a clean cut-out. For clean edges, retake in front of a plain light wall.',
     fileTarget: 'file target', savePreset: 'Save preset', delPreset: 'Delete',
@@ -38,7 +39,7 @@ const D = {
     noFit: 'This size doesn\'t fit on a 4×6 in sheet',
     exporting: 'Exporting…',
     tooBig: (d) => `Sheet too large for iPhone at this DPI. Use ${d} DPI or less for the 4×6 sheet.`,
-    sheetInfo: (w, h, n, c, r, dpi) => `4×6 in sheet ${w} × ${h} px · ${n} photos (${c}×${r}) @ ${dpi} DPI`,
+    sheetInfo: (w, h, n, c, r, dpi) => `4×6 in sheet ${w} × ${h} px · ${n} photos (${c}×${r}) @ ${dpi} DPI · Order as a 4×6 print (no crop). The ruler should measure 50 mm; cut along the lines.`,
   },
   zh: {
     title: '证件照',
@@ -49,6 +50,7 @@ const D = {
     camLight: '补光',
     camFail: '这里打不开取景相机，改用系统相机。',
     a_fill: '补光', fillHint: '补光会提亮脸上偏暗的一侧，就像旁边多放一盏柔光灯；只加光，不改脸型五官。',
+    segAI: '已在本机精细抠图（含头发丝）。边缘太硬可调高「边缘柔化」。',
     segPlain: '检测到纯色背景，已按颜色精修头发边缘。边缘太硬可调高「边缘柔化」。',
     segNotPlain: '背景不够单色，抠图边缘可能不干净。想要干净边缘，请在纯色浅色墙前重拍。',
     fileTarget: '文件大小要求', savePreset: '存为预设', delPreset: '删除',
@@ -78,7 +80,7 @@ const D = {
     noFit: '这个尺寸在 4×6 寸里放不下一张',
     exporting: '导出中…',
     tooBig: (d) => `这个 DPI 下拼版太大，iPhone 画不了。4×6 拼版请用 ${d} DPI 以内。`,
-    sheetInfo: (w, h, n, c, r, dpi) => `4×6 寸拼版 ${w} × ${h} px · ${n} 张（${c}×${r}）@ ${dpi} DPI`,
+    sheetInfo: (w, h, n, c, r, dpi) => `4×6 寸拼版 ${w} × ${h} px · ${n} 张（${c}×${r}）@ ${dpi} DPI · 冲印选 4×6 寸、不裁切。拿到后量刻度尺应为 50 mm，再沿线剪开。`,
   },
 };
 

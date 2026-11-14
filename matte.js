@@ -141,3 +141,67 @@ export function refineMatte(px, conf, w, h) {
   }
   return { alpha, model, plain, noise };
 }
+
+// 加权模糊（归一化卷积）：sum(v·wt)/sum(wt)，用来估计局部背景色/头发色
+function weightedBlur(px, wt, w, h, r) {
+  const n = w * h, num = [new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) num[c][i] = px[i * 4 + c] * wt[i];
+  const den = boxBlur(wt, w, h, r);
+  const out = num.map((a) => boxBlur(a, w, h, r));
+  return { out, den };
+}
+
+// 抠图模型（MODNet）给的 alpha 精修 + 去背景色。
+// 杂乱背景也能用：背景色按「alpha 低的邻近像素」逐点估计，不要求整面单色。
+// 返回 { alpha, fg }：fg 是去掉旧背景颜色后的前景 RGB（Uint8ClampedArray, w*h*3）。
+export function matteFromAlpha(px, a0, w, h, lo = 0.04, hi = 0.96) {
+  const n = w * h, alpha = new Float32Array(n);
+  // 轻微拉陡：<0.04 当背景，>0.96 当人
+  for (let i = 0; i < n; i++) alpha[i] = Math.min(1, Math.max(0, (a0[i] - lo) / (hi - lo)));
+  const r = Math.max(3, Math.round(Math.max(w, h) * 0.02));
+  const wb = new Float32Array(n), wf = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const a = alpha[i]; wb[i] = a < 0.05 ? 1 : 0; wf[i] = a > 0.9 ? 1 : 0; }
+  const B = weightedBlur(px, wb, w, h, r), F = weightedBlur(px, wf, w, h, r);
+  // 背景附近没有纯背景时再扩大半径取一次
+  const B2 = weightedBlur(px, wb, w, h, r * 4);
+  const fg = new Uint8ClampedArray(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = alpha[i];
+    if (a >= 0.99 || a <= 0.01) { for (let c = 0; c < 3; c++) fg[i * 3 + c] = px[i * 4 + c]; continue; }
+    const bd = B.den[i] > 1e-3 ? B : B2, fdv = F.den[i];
+    for (let c = 0; c < 3; c++) {
+      const I = px[i * 4 + c];
+      const bc = bd.den[i] > 1e-4 ? bd.out[c][i] / bd.den[i] : I;
+      let f = (I - (1 - a) * bc) / a;             // 解出前景色
+      const fl = fdv > 1e-3 ? F.out[c][i] / fdv : f; // 附近实心头发/衣服的颜色
+      // alpha 越低解出来越不可靠，往局部头发色靠
+      const k = Math.min(1, Math.max(0, (a - 0.25) / 0.5));
+      f = k * f + (1 - k) * fl;
+      fg[i * 3 + c] = f;
+    }
+  }
+  return { alpha, fg };
+}
+
+// 去掉和主体不相连的小块（比如墙上开关被误判成人）。保留面积最大的连通块。
+export function keepMainBlob(alpha, w, h, th = 0.1) {
+  const n = w * h, lab = new Int32Array(n).fill(-1), sizes = [];
+  const st = new Int32Array(n);
+  for (let s = 0; s < n; s++) {
+    if (lab[s] !== -1 || alpha[s] <= th) continue;
+    const id = sizes.length; let top = 0, sz = 0; st[top++] = s; lab[s] = id;
+    while (top) {
+      const i = st[--top]; sz++;
+      const x = i % w, y = (i - x) / w;
+      if (x > 0 && lab[i - 1] === -1 && alpha[i - 1] > th) { lab[i - 1] = id; st[top++] = i - 1; }
+      if (x < w - 1 && lab[i + 1] === -1 && alpha[i + 1] > th) { lab[i + 1] = id; st[top++] = i + 1; }
+      if (y > 0 && lab[i - w] === -1 && alpha[i - w] > th) { lab[i - w] = id; st[top++] = i - w; }
+      if (y < h - 1 && lab[i + w] === -1 && alpha[i + w] > th) { lab[i + w] = id; st[top++] = i + w; }
+    }
+    sizes.push(sz);
+  }
+  if (!sizes.length) return alpha;
+  let best = 0; for (let k = 1; k < sizes.length; k++) if (sizes[k] > sizes[best]) best = k;
+  for (let i = 0; i < n; i++) if (lab[i] !== best && lab[i] !== -1) alpha[i] = 0;
+  return alpha;
+}

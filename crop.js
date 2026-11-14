@@ -54,11 +54,14 @@ export function zoomAt(p, s, factor) {
   return { cx: s.cx, top: cy - (p.hMm * ppm) / 2, ppm };
 }
 
-// 4×6 英寸拼版：自动选横/竖，排满，单张之间留 gapMm，四周留 marginMm
+// 4×6 英寸拼版：自动选横/竖，排满，单张之间留 gapMm。
+// 四周至少留 SAFE_MM 安全边：网上冲印（无边框）常会裁掉纸边 1–2 mm，照片不能进这个区域。
 // 先试带间距的排法；如果去掉间距（相邻照片共用一条裁切线）能多放，就用无间距排法
+export const SAFE_MM = 3;
 export function sheetLayout(p, opt = {}) {
-  const a = sheetLayoutWith(p, opt.gapMm ?? 2, opt.marginMm ?? 2, opt);
-  const b = sheetLayoutWith(p, 0, 0, opt);
+  const m = opt.marginMm ?? SAFE_MM;
+  const a = sheetLayoutWith(p, opt.gapMm ?? 2, m, opt);
+  const b = sheetLayoutWith(p, 0, m, opt);
   return b.n > a.n ? b : a;
 }
 

@@ -1,5 +1,5 @@
 // 离线：缓存整个 App 和本地模型。不从任何其他网站加载东西，照片永远不出手机。
-const VERSION = 'idp-v1.2.5';
+const VERSION = 'idp-v1.2.6';
 const ASSETS = [
   './', 'index.html', 'style.css', 'app.js', 'crop.js', 'light.js', 'i18n.js', 'presets.js', 'matte.js', 'fill.js', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
@@ -7,8 +7,9 @@ const ASSETS = [
   'vendor/mediapipe/wasm/vision_wasm_internal.js', 'vendor/mediapipe/wasm/vision_wasm_internal.wasm',
   'vendor/models/face_landmarker.task', 'vendor/models/selfie_segmenter.tflite',
 ];
+// 装新版时绕过浏览器 HTTP 缓存（Pages 默认缓存 10 分钟），免得新 sw 存进旧文件
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

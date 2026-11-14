@@ -29,8 +29,8 @@ export const BUILTIN = [
   {
     id: 'ca-pr', en: 'Canada PR card', zh: '加拿大 PR 卡',
     wMm: 50, hMm: 70, headMin: 31, headMax: 36, top: 5, dpi: 400, bg: '#ffffff', kbMax: 4096,
-    noteEn: '50×70 mm · chin to natural top of head 31–36 mm · plain white background · digital 715×1000 to 2000×2800 px, JPEG ≤4 MB',
-    noteZh: '50×70 mm · 下巴到头顶 31–36 mm · 纯白背景 · 电子版 715×1000 到 2000×2800 像素，JPEG ≤4 MB',
+    noteEn: '50×70 mm · chin to natural top of head 31–36 mm · plain white background · digital 715×1000 to 2000×2800 px, JPEG ≤4 MB. IRCC requires a commercial photographer, no edits of any kind (light, background, cropping), and the studio name, address and date on the back.',
+    noteZh: '50×70 mm · 下巴到头顶 31–36 mm · 纯白背景 · 电子版 715×1000 到 2000×2800 像素，JPEG ≤4 MB。注意：官方要求照相馆拍摄、不得做任何修改（调光、换背景、裁剪都算），背面要有照相馆名称、地址和拍摄日期。',
   },
   {
     id: 'ca-visa', en: 'Canada visa', zh: '加拿大签证',

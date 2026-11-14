@@ -3,10 +3,10 @@ import { outputPixels, validate, autoCrop, cropRect, measure, zoomAt, sheetLayou
 import { DEFAULT_ADJ, buildLUT, applyLUT, autoAdjust, isNeutral } from './light.js';
 import { t, lang, setLang, applyStatic } from './i18n.js';
 import { BUILTIN } from './presets.js';
-import { upsample, refineMatte, bgAt } from './matte.js';
+import { upsample, refineMatte, bgAt, matteFromAlpha, keepMainBlob } from './matte.js';
 import { fillLight, suggestFill } from './fill.js';
 
-const VERSION = 'v1.2.5';
+const VERSION = 'v1.2.6';
 const $ = (id) => document.getElementById(id);
 $('ver').textContent = VERSION;
 
@@ -127,6 +127,33 @@ async function getSegmenter() {
   });
   return segmenter;
 }
+// v1.2.6 不带 MODNet（Frank 用白板背景）。模型文件在 work/idphoto/optional/，要启用：放回 app/vendor 并设为 true，sw.js 加回缓存列表
+const USE_MODNET = false;
+// 人像抠图模型 MODNet（量化版，约 6.6 MB），用 onnxruntime-web 在本地跑，专门抠头发丝
+let matter = null;
+async function getMatter() {
+  if (matter) return matter;
+  const ort = await import('./vendor/ort/ort.wasm.min.mjs');
+  ort.env.wasm.wasmPaths = new URL('vendor/ort/', location.href).href;
+  ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+  const sess = await ort.InferenceSession.create(new URL('vendor/models/modnet_q.onnx', location.href).href, { executionProviders: ['wasm'] });
+  matter = { ort, sess };
+  return matter;
+}
+// 跑 MODNet：短边 512、长宽取 32 的倍数，归一化到 -1..1；返回 w×h 的 alpha
+async function runModnet(src, W, H) {
+  const { ort, sess } = await getMatter();
+  const s = 512 / Math.min(W, H);
+  const w = Math.max(32, Math.round(W * s / 32) * 32), h = Math.max(32, Math.round(H * s / 32) * 32);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const cx = c.getContext('2d', { willReadFrequently: true }); cx.imageSmoothingQuality = 'high';
+  cx.drawImage(src, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data, n = w * h, t = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) t[k * n + i] = d[i * 4 + k] / 127.5 - 1;
+  const r = await sess.run({ [sess.inputNames[0]]: new ort.Tensor('float32', t, [1, 3, h, w]) });
+  const o = r[sess.outputNames[0]];
+  return { data: Float32Array.from(o.data), w, h };
+}
 
 // ---------- 读图 ----------
 const MAX_SIDE = 3000;
@@ -155,7 +182,7 @@ $('fileIn').onchange = (e) => { loadFile(e.target.files[0]); e.target.value = ''
 
 async function setImage(canvas) {
   state.img = canvas; state.W = canvas.width; state.H = canvas.height;
-  state.det = null; state.crop = null; state.mask = null; state.maskStatus = 'idle';
+  state.det = null; state.crop = null; state.mask = null; state.fgLayer = null; state.maskStatus = 'idle';
   state.adj = { ...DEFAULT_ADJ }; state.fill = 0; syncAdjUI();
   clearExport();
   for (const id of ['cropCard', 'lightCard', 'bgCard', 'exportCard']) $(id).hidden = false;
@@ -229,10 +256,28 @@ async function runSegmentation() {
     wctx.drawImage(state.img, 0, 0, ww, wh);
     const px = wctx.getImageData(0, 0, ww, wh).data;
     const conf = upsample(data, mw, mh, ww, wh);
-    const mt = refineMatte(px, conf, ww, wh);
-    state.matte = { model: mt.model, plain: mt.plain, noise: mt.noise };
+    let alpha = null; state.fgLayer = null;
+    try {
+      // 首选：抠图模型 + 逐点去背景色（背景杂乱也行）
+      if (!USE_MODNET) throw new Error('modnet disabled');
+      const mo = await runModnet(wc, ww, wh);
+      const a0 = keepMainBlob(upsample(mo.data, mo.w, mo.h, ww, wh), ww, wh);
+      const mf = matteFromAlpha(px, a0, ww, wh, 0.2, 0.85);
+      alpha = mf.alpha;
+      const fc = document.createElement('canvas'); fc.width = ww; fc.height = wh;
+      const fx = fc.getContext('2d'), fid = fx.createImageData(ww, wh);
+      for (let i = 0; i < ww * wh; i++) { fid.data[i * 4] = mf.fg[i * 3]; fid.data[i * 4 + 1] = mf.fg[i * 3 + 1]; fid.data[i * 4 + 2] = mf.fg[i * 3 + 2]; fid.data[i * 4 + 3] = 255; }
+      fx.putImageData(fid, 0, 0);
+      state.fgLayer = fc;
+      state.matte = { model: null, plain: true, noise: 0, ai: true };
+    } catch (e) {
+      if (USE_MODNET) console.warn('modnet failed, fallback', e);
+      const mt = refineMatte(px, conf, ww, wh);
+      alpha = mt.alpha;
+      state.matte = { model: mt.model, plain: mt.plain, noise: mt.noise };
+    }
     const id = wctx.createImageData(ww, wh);
-    for (let i = 0; i < ww * wh; i++) id.data[i * 4 + 3] = Math.round(mt.alpha[i] * 255);
+    for (let i = 0; i < ww * wh; i++) id.data[i * 4 + 3] = Math.round(alpha[i] * 255);
     wctx.putImageData(id, 0, 0);
     state.mask = wc; state.maskStatus = 'ok';
   } catch (e) {
@@ -241,7 +286,7 @@ async function runSegmentation() {
   updateBgHint();
 }
 function updateBgHint() {
-  const m = { idle: '', running: t('segRunning'), ok: state.matte?.plain ? t('segPlain') : t('segNotPlain'), fail: t('segFail') };
+  const m = { idle: '', running: t('segRunning'), ok: state.matte?.ai ? t('segAI') : state.matte?.plain ? t('segPlain') : t('segNotPlain'), fail: t('segFail') };
   $('bgHint').textContent = m[state.maskStatus];
   $('bgHint').className = state.maskStatus === 'ok' && !state.matte?.plain ? 'warn' : 'hint';
   $('bgOn').disabled = state.maskStatus !== 'ok';
@@ -283,7 +328,24 @@ function renderCrop(outW, outH) {
     const m = document.createElement('canvas'); m.width = outW; m.height = outH;
     const mc = m.getContext('2d'); mc.imageSmoothingEnabled = true; mc.imageSmoothingQuality = 'high';
     mc.drawImage(small, 0, 0, outW, outH);
-    if (state.matte?.model) {
+    if (state.fgLayer) {
+      // 抠图模型：边缘像素换成「去掉旧背景色」的前景色，再和新底色混合
+      const fgc = document.createElement('canvas'); fgc.width = outW; fgc.height = outH;
+      const fgx = fgc.getContext('2d'); fgx.imageSmoothingEnabled = true; fgx.imageSmoothingQuality = 'high';
+      const kf = state.fgLayer.width / state.W;
+      fgx.drawImage(state.fgLayer, -r.x * sx, -r.y * sy, (state.fgLayer.width / kf) * sx, (state.fgLayer.height / kf) * sy);
+      const P = pc.getImageData(0, 0, outW, outH), A = mc.getImageData(0, 0, outW, outH).data, d = P.data;
+      const Fd = fgx.getImageData(0, 0, outW, outH).data, N = hexRgb(p.bg);
+      for (let i = 0; i < d.length; i += 4) {
+        const a = A[i + 3] / 255;
+        if (a >= 0.99) continue;
+        for (let c = 0; c < 3; c++) {
+          const f = luts ? luts[c][Fd[i + c]] : Fd[i + c];
+          d[i + c] = a * f + (1 - a) * N[c];
+        }
+      }
+      pc.putImageData(P, 0, 0);
+    } else if (state.matte?.model) {
       // 合成时去掉边缘里残留的旧背景色（头发丝不会带一圈灰边）
       const P = pc.getImageData(0, 0, outW, outH), A = mc.getImageData(0, 0, outW, outH).data, d = P.data;
       const N = hexRgb(p.bg), B = [0, 0, 0];
@@ -507,7 +569,57 @@ function renderSheet() {
   ctx.stroke();
   ctx.lineWidth = lw;
   for (const cell of L.cells) ctx.strokeRect(cell.x - 0.5, cell.y - 0.5, cell.w + 1, cell.h + 1);
+  drawRuler(ctx, L, x0, x1, y0, y1);
   return { canvas: c, L };
+}
+
+// 拼版空边画一条刻度尺（默认 50 mm），冲印回来量一下就知道有没有被缩放
+function drawRuler(ctx, L, x0, x1, y0, y1) {
+  const dpi = params.dpi, mm = (v) => (v / 25.4) * dpi;
+  const need = mm(3.5);
+  const gaps = [
+    { side: 'b', size: L.H - y1 }, { side: 't', size: y0 },
+    { side: 'r', size: L.W - x1 }, { side: 'l', size: x0 },
+  ];
+  // 优先横放在下边、其次上边（好读），都放不下才竖放在左右
+  const g = gaps.find((x) => x.size >= need) || gaps[0];
+  if (g.size < need) return;
+  const horiz = g.side === 'b' || g.side === 't';
+  const span = horiz ? L.W : L.H;
+  const lenMm = Math.min(50, Math.floor(((span / dpi) * 25.4 - 30) / 10) * 10);
+  if (lenMm < 20) return;
+  const len = mm(lenMm), tick = Math.min(mm(2.2), g.size * 0.45), lw = Math.max(1, Math.round(dpi / 300));
+  const band = Math.min(g.size - mm(0.6), mm(4.2));
+  ctx.save();
+  // 把坐标转成「沿尺子方向 = x，向纸内 = y」：先移到空边中间
+  // 尺子贴着照片外沿放（冲印可能裁掉纸边 1–2 mm）
+  const off = mm(0.6);
+  if (horiz) {
+    const y = g.side === 'b' ? y1 + off : y0 - off - band;
+    ctx.translate((L.W - len) / 2, y);
+  } else {
+    const x = g.side === 'r' ? x1 + off + band : x0 - off;
+    ctx.translate(x, (L.H - len) / 2); ctx.rotate(Math.PI / 2);
+  }
+  const fs = Math.max(8, Math.round(band - tick - mm(0.5)));
+  ctx.font = `${fs}px -apple-system, Helvetica, Arial, sans-serif`;
+  const label = `${lenMm} mm`, tw = ctx.measureText(label).width;
+  ctx.fillStyle = '#fff'; ctx.fillRect(-mm(1), 0, len + tw + mm(3), band); // 盖住经过的刀线
+  ctx.strokeStyle = '#000'; ctx.fillStyle = '#000'; ctx.lineWidth = lw;
+  ctx.beginPath();
+  ctx.moveTo(0, lw / 2); ctx.lineTo(len, lw / 2);
+  for (let i = 0; i <= lenMm; i++) {
+    const x = Math.round(mm(i)) + 0.5, h = i % 10 === 0 ? tick : i % 5 === 0 ? tick * 0.7 : tick * 0.45;
+    ctx.moveTo(x, 0); ctx.lineTo(x, h);
+  }
+  ctx.stroke();
+  ctx.textBaseline = 'top';
+  for (let i = 0; i <= lenMm; i += 10) {
+    const s = String(i), w = ctx.measureText(s).width;
+    ctx.fillText(s, Math.min(Math.max(mm(i) - w / 2, 0), len - w), tick + mm(0.3));
+  }
+  ctx.fillText(label, len + mm(1.5), 0);
+  ctx.restore();
 }
 
 async function doExport(kind) {
